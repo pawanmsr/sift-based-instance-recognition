@@ -90,6 +90,7 @@ class instanceRecognation:
             self.mu.stackDescriptors(des)
             self.mu.generateEmbedding(des)
             prob = self.mu.testClassifier()
+            print(self.cmap[np.argmax(prob)])
 
 if __name__ == '__main__':
     if len(sys.argv)!=2:
@@ -102,4 +103,4 @@ if __name__ == '__main__':
     #ir.processTestImages()
     #ir.featureMatchTest()
     #ir.trainClassificationModel()
-    ir.testClassificationModel()
+    #ir.testClassificationModel()
