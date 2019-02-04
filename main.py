@@ -1,5 +1,6 @@
 import sys
 import time
+import numpy as np
 import utility as util
 from operator import itemgetter
 
@@ -7,10 +8,12 @@ class instanceRecognation:
     def __init__(self):
         self.su = util.siftUtility()
         self.fu = util.fileUtility()
+        self.mu = util.modelUtility()
         self.img_db = {}
         self.train_db = {}
         self.test_db = {}
         self.fm_results = {}
+        self.cmap = {}
     
     def loadImageDatabase(self, img_db_file_path):
         self.img_db = self.fu.loadJSON(img_db_file_path)
@@ -31,9 +34,9 @@ class instanceRecognation:
         start_time = time.time()
         for img in self.train_db:
             kp, des = self.extractSiftFeatures(img)
-            self.fu.dumpKeypoints(kp, img['name'])
-            self.fu.dumpDescriptors(des, img['name'])
-        print(str(len(self.train_db)), "images processed in %.3f seconds", (time.time() - start_time()))
+            self.fu.dumpKeypoints(kp, img['class']+'_'+img['name'])
+            self.fu.dumpDescriptors(des, img['class']+'_'+img['name'])
+        print(str(len(self.train_db)), "images processed in %.3f seconds" % (time.time() - start_time))
     
     def processTestImages(self):
         print("computing sift features for testing images...")
@@ -42,19 +45,51 @@ class instanceRecognation:
             kp, des = self.extractSiftFeatures(img)
             self.fu.dumpKeypoints(kp, img['name'])
             self.fu.dumpDescriptors(des, img['name'])
-        print(str(len(self.train_db)), "images processed in %.3f seconds" % (time.time() - start_time()))
+        print(str(len(self.train_db)), "images processed in %.3f seconds" % (time.time() - start_time))
     
     def featureMatchTest(self, reverse=False):
+        print("comparing sift features between test and train images...")
+        start_time = time.time()
         self.fm_results = {}
         for test_img in self.test_db:
             self.fm_results[test_img['name']] = []
             test_des = self.fu.loadDescriptors(test_img['name'])
             for train_img in self.train_db:
-                train_des = self.fu.loadDescriptors(train_img['name'])
+                train_des = self.fu.loadDescriptors(train_img['class']+'_'+train_img['name'])
                 metric = self.su.BFDistanceFeatureMatch(train_des, test_des)
-                self.fm_results[test_img['name']].append({'metric':metric, 'name':train_img['name']})
+                self.fm_results[test_img['name']].append({'metric':metric, 'name':train_img['class']+'_'+train_img['name']})
             self.fm_results[test_img['name']] = sorted(self.fm_results[test_img['name']], key=itemgetter('metric'), reverse=reverse)
-            self.fu.dumpFeatureMatchResults(self.fm_results[test_img['name']], test_img['name'])
+            self.fu.dumpFeatureMatchTestResults(self.fm_results[test_img['name']], test_img['name'])
+        print(str(len(self.test_db)), "test images compared in %.3f seconds" % (time.time() - start_time))
+    
+    def trainClassificationModel(self):
+        print("train for classification...")
+        des = []
+        labels = []
+        cno = 0
+        self.cmap = {}
+        for img in self.train_db:
+            if img['class'] not in self.cmap:
+                self.cmap[img['class']] = cno
+                self.cmap[cno] = img['class']
+                cno+=1
+            des.append(self.fu.loadDescriptors(img['class']+'_'+img['name']))
+            labels.append(self.cmap[img['class']])
+        print("preprocessing completed")
+        self.fu.dumpModelMatrices(np.array(des), 'descriptors')
+        self.fu.dumpModelJSON(self.cmap, 'class_map')
+        self.mu.stackDescriptors(des)
+        self.mu.cluster()
+        self.mu.generateEmbedding(des)
+        self.mu.trainClassifier(labels)
+    
+    def testClassificationModel(self):
+        des = []
+        for img in self.test_db:
+            des.append(self.fu.loadDescriptors(img['name']))
+            self.mu.generateEmbedding(des)
+            prob = self.mu.testClassifier()
+            print(prob)
 
 if __name__ == '__main__':
     if len(sys.argv)!=2:
@@ -63,7 +98,8 @@ if __name__ == '__main__':
     
     ir = instanceRecognation()
     ir.loadImageDatabase(sys.argv[1])
-    ir.processTrainImages()
-    ir.featureMatchTest()
-
-    #if sys.argv[2]==0:
+    #ir.processTrainImages()
+    #ir.processTestImages()
+    #ir.featureMatchTest()
+    ir.trainClassificationModel()
+    ir.testClassificationModel()
