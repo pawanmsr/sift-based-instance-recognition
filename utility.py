@@ -44,10 +44,10 @@ class fileUtility:
             print(e)
 
     def dumpDescriptors(self, des, filename):
-        np.savetxt(self.sift_path+filename+'.csv', des, delimiter=',')
+        np.save(self.sift_path+filename+'.npy', des)
     
     def loadDescriptors(self, filename):
-        data = np.loadtxt(self.sift_path+filename+'.csv', delimiter=',')
+        data = np.load(self.sift_path+filename+'.npy')
         return data.astype(np.float32)
 
     def dumpKeypoints(self, kp, filename):
@@ -76,10 +76,10 @@ class fileUtility:
         return kp
     
     def dumpModelMatrices(self, data, filename):
-        np.savetxt(self.data_path+filename+'.csv', data, delimiter=',')
+        np.savetxt(self.data_path+filename+'.npy', data)
     
     def loadModelMatrices(self, filename):
-        return np.loadtxt(self.data_path+filename+'.csv', delimiter=',')
+        return np.loadtxt(self.data_path+filename+'.npy')
     
     def dumpModelJSON(self, data, filename):
         path = self.data_path+filename+'.json'
@@ -100,7 +100,7 @@ class siftUtility:
         self.bf = cv.BFMatcher()
     
     def showKeypointsImage(self, img, kp):
-        img=cv.drawKeypoints(img,kp,flags=cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        img=cv.drawKeypoints(img,kp,None,flags=cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
         plt.imshow(img)
         plt.show()
     
@@ -138,9 +138,10 @@ class siftUtility:
                 good+=1
         return good
 
-class modelUtility(fileUtility):
+class modelUtility():
     def __init__(self, clusters=100):
         self.n_clusters = clusters
+        self.fu = fileUtility()
         self.des_stack = None
         self.centers = None
         self.embedding = None
@@ -150,14 +151,18 @@ class modelUtility(fileUtility):
     
     def stackDescriptors(self, descriptors):
         self.des_stack = np.vstack(d for d in descriptors)
-        self.dumpModelMatrices(self.des_stack, "des_stack")
+        self.fu.dumpModelMatrices(self.des_stack, "des_stack")
     
     def cluster(self, batch_size=2000):
         self.kmeans = MiniBatchKMeans(n_clusters=self.n_clusters, batch_size=batch_size, verbose=True)
         self.centers = self.kmeans.fit_predict(self.des_stack)
-        self.dumpModelMatrices(self.centers, "cluster_centers")
-        joblib.dump(self.kmeans, self.data_path+'kmeans.joblib')
+        self.fu.dumpModelMatrices(self.centers, "cluster_centers")
+        joblib.dump(self.kmeans, self.fu.models_path+'kmeans.joblib')
     
+    def obtainCenters(self):
+        self.kmeans = joblib.load(self.fu.models_path+'kmeans.joblib')
+        self.centers = self.kmeans.predict(self.des_stack)
+
     def generateEmbedding(self, des):
         self.embedding = np.zeros((len(des),self.n_clusters))
         pt = 0
@@ -171,8 +176,8 @@ class modelUtility(fileUtility):
         self.labels = labels
         self.clf = SVC(probability=True, verbose=True)
         self.clf.fit(self.embedding, self.labels)
-        joblib.dump(self.clf, self.data_path+'svc.joblib')
+        joblib.dump(self.clf, self.fu.models_path+'svc.joblib')
     
     def testClassifier(self):
-        self.clf = joblib.load(self.data_path+'svc.joblib')
+        self.clf = joblib.load(self.fu.models_path+'svc.joblib')
         return self.clf.predict_proba(self.embedding)

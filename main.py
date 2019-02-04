@@ -75,8 +75,8 @@ class instanceRecognation:
                 cno+=1
             des.append(self.fu.loadDescriptors(img['class']+'_'+img['name']))
             labels.append(self.cmap[img['class']])
+        print(len(des), "images")
         print("preprocessing completed")
-        self.fu.dumpModelMatrices(np.array(des), 'descriptors')
         self.fu.dumpModelJSON(self.cmap, 'class_map')
         self.mu.stackDescriptors(des)
         self.mu.cluster()
@@ -84,12 +84,12 @@ class instanceRecognation:
         self.mu.trainClassifier(labels)
     
     def testClassificationModel(self):
-        des = []
         for img in self.test_db:
+            des = []
             des.append(self.fu.loadDescriptors(img['name']))
+            self.mu.stackDescriptors(des)
             self.mu.generateEmbedding(des)
             prob = self.mu.testClassifier()
-            print(prob)
 
 if __name__ == '__main__':
     if len(sys.argv)!=2:
@@ -98,8 +98,8 @@ if __name__ == '__main__':
     
     ir = instanceRecognation()
     ir.loadImageDatabase(sys.argv[1])
-    #ir.processTrainImages()
+    ir.processTrainImages()
     #ir.processTestImages()
     #ir.featureMatchTest()
-    ir.trainClassificationModel()
+    #ir.trainClassificationModel()
     ir.testClassificationModel()
