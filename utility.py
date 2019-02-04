@@ -1,8 +1,10 @@
 import os
 import json
+import joblib
 import pickle
 import cv2 as cv
 import numpy as np
+from sklearn.svm import SVC
 import matplotlib.pyplot as plt
 from sklearn.cluster import MiniBatchKMeans
 
@@ -26,20 +28,27 @@ class fileUtility:
         if not os.path.exists(self.results_path):
             os.makedirs(self.results_path)
     
-    def loadJSON(self, img_db_file_path):
+    def loadJSON(self, path):
         try:
-            with open(img_db_file_path,'r') as f:
+            with open(path,'r') as f:
                 self.db = json.load(f)
         except Exception as e:
             print(e)
         return self.db
     
+    def dumpJSON(self, data, path):
+        try:
+            with open(path,'w') as f:
+                json.dump(data, f)
+        except Exception as e:
+            print(e)
+
     def dumpDescriptors(self, des, filename):
         np.savetxt(self.sift_path+filename+'.csv', des, delimiter=',')
     
     def loadDescriptors(self, filename):
         data = np.loadtxt(self.sift_path+filename+'.csv', delimiter=',')
-        return data
+        return data.astype(np.float32)
 
     def dumpKeypoints(self, kp, filename):
         index = []
@@ -66,15 +75,34 @@ class fileUtility:
             kp.append(temp)
         return kp
     
+    def dumpModelMatrices(self, data, filename):
+        np.savetxt(self.data_path+filename+'.csv', data, delimiter=',')
+    
+    def loadModelMatrices(self, filename):
+        return np.loadtxt(self.data_path+filename+'.csv', delimiter=',')
+    
+    def dumpModelJSON(self, data, filename):
+        path = self.data_path+filename+'.json'
+        self.dumpJSON(data, path)
+    
+    def loadModelJSON(self, filename):
+        path = self.data_path+filename+'.json'
+        return self.loadJSON(path)
+
     def dumpFeatureMatchTestResults(self, score, name):
         with open(self.results_path+name+'.txt', "w") as f:
             for i in range(len(score)):
-                f.write(matchness[i]['ic'] +'_'+ matchness[i]['image']+'.jpg\n')
+                f.write(score[i]['name']+'.jpg\n')
 
 class siftUtility:
     def __init__(self):
         self.sift = cv.xfeatures2d.SIFT_create()
         self.bf = cv.BFMatcher()
+    
+    def showKeypointsImage(self, img, kp):
+        img=cv.drawKeypoints(img,kp,flags=cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        plt.imshow(img)
+        plt.show()
     
     def generateMask(self, img_shape, corner_point):
         mask = np.zeros(img_shape, dtype=np.uint8)
@@ -89,6 +117,7 @@ class siftUtility:
             mask = None
         
         kp, des = self.sift.detectAndCompute(image, mask)
+        #self.showKeypointsImage(image, kp)
         return kp, des
     
     def BFDistanceFeatureMatch(self, des1, des2, n=10):
@@ -108,3 +137,42 @@ class siftUtility:
             if m.distance < t*n.distance:
                 good+=1
         return good
+
+class modelUtility(fileUtility):
+    def __init__(self, clusters=100):
+        self.n_clusters = clusters
+        self.des_stack = None
+        self.centers = None
+        self.embedding = None
+        self.labels = []
+        self.kmeans = None
+        self.clf = None
+    
+    def stackDescriptors(self, descriptors):
+        self.des_stack = np.vstack(d for d in descriptors)
+        self.dumpModelMatrices(self.des_stack, "des_stack")
+    
+    def cluster(self, batch_size=2000):
+        self.kmeans = MiniBatchKMeans(n_clusters=self.n_clusters, batch_size=batch_size, verbose=True)
+        self.centers = self.kmeans.fit_predict(self.des_stack)
+        self.dumpModelMatrices(self.centers, "cluster_centers")
+        joblib.dump(self.kmeans, self.data_path+'kmeans.joblib')
+    
+    def generateEmbedding(self, des):
+        self.embedding = np.zeros((len(des),self.n_clusters))
+        pt = 0
+        for i in range(len(des)):
+            m = len(des[i])
+            for j in range(m):
+                self.embedding[i][self.centers[pt+j]]+=1
+            pt+=m
+    
+    def trainClassifier(self, labels):
+        self.labels = labels
+        self.clf = SVC(probability=True, verbose=True)
+        self.clf.fit(self.embedding, self.labels)
+        joblib.dump(self.clf, self.data_path+'svc.joblib')
+    
+    def testClassifier(self):
+        self.clf = joblib.load(self.data_path+'svc.joblib')
+        return self.clf.predict_proba(self.embedding)
